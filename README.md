@@ -125,3 +125,9 @@ The included Node test suite covers import parsing (including PDF line-break han
 | `CONTACT_EMAIL` | Contact address shown on legal pages |
 | `LEGAL_EFFECTIVE_DATE` | Effective date shown on legal pages |
 | `PRODUCT_LINK_URL` | Destination for the footer `(r) Eventrigger Byproduct` credit link |
+
+## Study direction and test variation
+
+Memorization, Cram for a test, Practice test, and Matching sessions let the learner choose to recall the definition (show the term), recall the term (show the definition), or mix both directions at random. Multiple-choice options and typed-answer checking use the selected answer side. Matching presents prompt and answer columns in the selected direction; random mode chooses the direction separately for each pair. Memorization flashcard checkpoints follow the same direction choice.
+
+Practice tests draw the requested number of questions from the full eligible card pool. Retrying first selects cards that were not in the immediately previous test, avoiding repeated five-question sets while enough unseen cards remain. Once the unused pool is smaller than the selected question count, the test mixes the remaining unseen cards with earlier questions. Memorization and Cram also randomize their selected subset when a limited question count is chosen.

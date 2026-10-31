@@ -12,6 +12,7 @@ import { deleteSet, saveSet } from '@/lib/storage';
 import { loadStudySet } from '@/lib/set-access';
 import { notifyCloudUpdated } from '@/lib/client-events';
 import { exportCsv, exportJson } from '@/lib/export';
+import { shuffleItems } from '@/lib/study';
 import StudySession from '@/components/StudySession';
 
 const COUNT_OPTIONS = [1, 5, 10, 20, 'all'];
@@ -31,6 +32,7 @@ export default function SetWorkspace() {
   const [level, setLevel] = useState('basic');
   const [questionCount, setQuestionCount] = useState('all');
   const [testType, setTestType] = useState('choice');
+  const [answerSide, setAnswerSide] = useState('definition');
   const [includeCheckpoints, setIncludeCheckpoints] = useState(true);
   const [starredOnly, setStarredOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
@@ -140,14 +142,18 @@ export default function SetWorkspace() {
   function startStudy() {
     if (!readyCards.length) return;
     const count = setupMode === 'matching' ? readyCards.length : visibleCount;
-    const selectedCards = readyCards.slice(0, count);
+    // Practice tests receive the full pool so each retry can draw a fresh
+    // subset. Memorization and Cram choose a random subset at session start.
+    const selectedCards = setupMode === 'test' || setupMode === 'matching'
+      ? [...readyCards]
+      : shuffleItems(readyCards).slice(0, count);
     const options = setupMode === 'memorize'
-      ? { count, level, includeFlashcards: true }
+      ? { count, level, includeFlashcards: true, answerSide }
       : setupMode === 'cram'
-        ? { count, level: 'basic', questionType: 'choice', includeFlashcards: includeCheckpoints }
+        ? { count, level: 'basic', questionType: 'choice', includeFlashcards: includeCheckpoints, answerSide }
         : setupMode === 'test'
-          ? { count, questionType: testType }
-          : {};
+          ? { count, questionType: testType, answerSide }
+          : { answerSide };
     setActiveSession({ mode: setupMode === 'matching' ? 'match' : setupMode, cards: selectedCards, options });
     setSetupMode(null);
   }
@@ -236,6 +242,8 @@ export default function SetWorkspace() {
           {setupMode === 'cram' && <div className="setup-option-block"><label className="setup-checkbox"><input type="checkbox" checked={includeCheckpoints} onChange={(event) => setIncludeCheckpoints(event.target.checked)} /><span><strong>Include flashcard checkpoints</strong><small>Review the cards after each group of 7 questions.</small></span></label></div>}
 
           {setupMode === 'test' && <div className="setup-option-block"><span className="setup-option-label">Answer format</span><div className="setup-level-grid setup-type-grid"><button className={testType === 'choice' ? 'active' : ''} onClick={() => setTestType('choice')} disabled={readyCards.length < 2}><strong>Multiple choice</strong><small>Select the correct answer from a set of options.</small></button><button className={testType === 'typed' ? 'active' : ''} onClick={() => setTestType('typed')}><strong>Written response</strong><small>Type the definition or answer yourself.</small></button></div>{readyCards.length < 2 && <p className="helper-text">Multiple choice needs at least two cards with different answers.</p>}</div>}
+
+          <div className="setup-option-block"><span className="setup-option-label">What should you answer?</span><div className="setup-direction-grid" role="group" aria-label="Choose whether to recall the term or definition"><button type="button" className={answerSide === 'definition' ? 'active' : ''} onClick={() => setAnswerSide('definition')}><strong>Definition</strong><small>See the term, then recall its definition.</small></button><button type="button" className={answerSide === 'term' ? 'active' : ''} onClick={() => setAnswerSide('term')}><strong>Term</strong><small>See the definition, then recall its term.</small></button><button type="button" className={answerSide === 'random' ? 'active' : ''} onClick={() => setAnswerSide('random')}><strong>Both at random</strong><small>Mix term and definition questions throughout the session.</small></button></div></div>
 
           <div className="setup-option-block setup-filters"><span className="setup-option-label">Focus (optional)</span><label className="setup-checkbox"><input type="checkbox" checked={starredOnly} onChange={(event) => { setStarredOnly(event.target.checked); setReviewOnly(false); }} /><span><strong>Starred cards only</strong></span></label><label className="setup-checkbox"><input type="checkbox" checked={reviewOnly} onChange={(event) => { setReviewOnly(event.target.checked); setStarredOnly(false); }} /><span><strong>Cards to revisit only</strong></span></label><span className="helper-text">{readyCards.length} cards match your focus settings.</span>{readyCards.length === 0 && <p className="inline-warning">No cards match these filters. Turn off one or both focus options to continue.</p>}</div>
 

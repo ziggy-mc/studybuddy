@@ -534,3 +534,65 @@ select, input, textarea { color: var(--text); }
 .hero-panel { min-height: 270px; padding-top: 34px; padding-bottom: 34px; }
 .dashboard-section { margin-top: 38px; }
 .cloud-section { margin-top: 38px; }
+
+/* Dedicated flashcard page: keep card content constrained and wrapping on phones. */
+.flashcard-session .flashcard {
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.flashcard-session .flashcard-inner {
+  min-width: 0;
+  width: 100%;
+}
+.flashcard-session .flashcard-face {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.flashcard-session .flashcard-face > strong {
+  display: block;
+  flex: 0 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 620px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: center;
+}
+.flashcard-session .flashcard-face > small,
+.flashcard-session .flashcard-face > .flashcard-side-label,
+.flashcard-session .flashcard-face > .flip-hint {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+  .flashcard-page-wrap .flashcard-stage {
+    width: 100%;
+    min-width: 0;
+  }
+  .flashcard-session .flashcard {
+    width: 100%;
+    min-width: 0;
+  }
+  .flashcard-session .flashcard-face {
+    padding: 22px 18px;
+  }
+  .flashcard-session .flashcard-face > strong {
+    width: 100%;
+    max-width: 100%;
+    font-size: clamp(18px, 5.4vw, 23px);
+    line-height: 1.45;
+    margin: 18px 0;
+  }
+  .flashcard-session .flashcard-face > .flip-hint {
+    justify-content: center;
+    text-align: center;
+  }
+}
+

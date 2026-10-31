@@ -59,9 +59,7 @@ export default function Dashboard() {
   useEffect(() => { refresh(); }, [refresh]);
 
   async function newSet() {
-    const set = createEmptySet();
-    await saveSet(set);
-    router.push(`/sets/${set.id}/edit`);
+    router.push(`/import`);
   }
 
   async function removeLocal(set) {

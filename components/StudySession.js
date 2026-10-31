@@ -2,7 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Clock3, RotateCcw, Shuffle, XCircle } from 'lucide-react';
-import { buildChoiceOptions, getCheckpointCards, getMemorizationQuestionType, normalizeAnswer, shuffleItems } from '@/lib/study';
+import {
+  buildChoiceOptions,
+  getAnswerText,
+  getCheckpointCards,
+  getMemorizationQuestionType,
+  getQuestionText,
+  normalizeAnswer,
+  resolveAnswerSide,
+  selectQuestionCards,
+  shuffleItems,
+} from '@/lib/study';
 
 function shuffle(items) {
   return shuffleItems(items);
@@ -12,22 +22,35 @@ function normalize(value) {
   return normalizeAnswer(value);
 }
 
-function buildChoices(cards, correctCard) {
-  return buildChoiceOptions(cards, correctCard);
+function buildChoices(cards, correctCard, answerSide = 'definition') {
+  return buildChoiceOptions(cards, correctCard, answerSide);
 }
 
-function buildQuestions(cards, count, type) {
-  return shuffle(cards).slice(0, Math.min(count, cards.length)).map((card) => ({
-    card,
-    choices: type === 'choice' ? buildChoices(cards, card) : [],
-  }));
+function buildQuestions(cards, count, type, answerDirection = 'definition', previousCardIds = []) {
+  return selectQuestionCards(cards, count, previousCardIds).map((card) => {
+    const answerSide = resolveAnswerSide(answerDirection);
+    return {
+      card,
+      answerSide,
+      choices: type === 'choice' ? buildChoices(cards, card, answerSide) : [],
+    };
+  });
 }
 
-function createMatching(cards) {
-  const selected = shuffle(cards).slice(0, Math.min(8, cards.length));
+function createMatching(cards, answerDirection = 'definition', previousCardIds = []) {
+  const selected = selectQuestionCards(cards, Math.min(8, cards.length), previousCardIds);
+  const pairs = selected.map((card) => {
+    const answerSide = resolveAnswerSide(answerDirection);
+    return {
+      cardId: card.id,
+      prompt: { cardId: card.id, text: getQuestionText(card, answerSide) },
+      answer: { cardId: card.id, text: getAnswerText(card, answerSide) },
+    };
+  });
   return {
-    terms: selected.map((card) => ({ cardId: card.id, text: card.term })),
-    definitions: shuffle(selected).map((card) => ({ cardId: card.id, text: card.definition })),
+    left: shuffle(pairs.map((pair) => pair.prompt)),
+    right: shuffle(pairs.map((pair) => pair.answer)),
+    selectedCardIds: selected.map((card) => card.id),
   };
 }
 
@@ -57,11 +80,11 @@ export default function StudySession({ set, mode, cards: startingCards, options 
   const initialQuestionCount = Math.min(Number(options.count) || 10, sourceCards.length);
   const [questionType, setQuestionType] = useState(initialQuestionType);
   const [questionCount, setQuestionCount] = useState(initialQuestionCount);
-  const [questions, setQuestions] = useState(() => mode === 'test' ? buildQuestions(sourceCards, initialQuestionCount, initialQuestionType) : []);
+  const [questions, setQuestions] = useState(() => mode === 'test' ? buildQuestions(sourceCards, initialQuestionCount, initialQuestionType, options.answerSide) : []);
   const [testIndex, setTestIndex] = useState(0);
   const [answers, setAnswers] = useState([]);
   const [selected, setSelected] = useState('');
-  const [matching, setMatching] = useState(() => createMatching(sourceCards));
+  const [matching, setMatching] = useState(() => createMatching(sourceCards, options.answerSide));
   const [firstMatch, setFirstMatch] = useState(null);
   const [matched, setMatched] = useState(() => new Set());
   const [mistakes, setMistakes] = useState(0);
@@ -69,12 +92,16 @@ export default function StudySession({ set, mode, cards: startingCards, options 
   const [clockNow, setClockNow] = useState(Date.now());
   const [finished, setFinished] = useState(false);
   const progressRef = useRef(set.progress || { known: [], review: [], attempts: 0, correct: 0 });
+  const [learnAnswerSides] = useState(() => new Map(sourceCards.map((card) => [card.id, resolveAnswerSide(options.answerSide)])));
 
   const current = cards[index];
-  const learnChoices = useMemo(() => buildChoices(cards, current), [cards, current?.id]);
+  const learnAnswerSide = learnAnswerSides.get(current?.id) || 'definition';
+  const learnPrompt = getQuestionText(current, learnAnswerSide);
+  const learnExpectedAnswer = getAnswerText(current, learnAnswerSide);
+  const learnChoices = useMemo(() => buildChoices(cards, current, learnAnswerSide), [cards, current?.id, learnAnswerSide]);
   const testQuestion = questions[testIndex];
   const testFinished = mode === 'test' && testIndex >= questions.length;
-  const matchingFinished = mode === 'match' && matching.terms.length > 0 && matched.size >= matching.terms.length;
+  const matchingFinished = mode === 'match' && matching.left.length > 0 && matched.size >= matching.left.length;
   const canUseLearnChoices = learnChoices.length > 1;
   const checkpointCard = checkpointCards[checkpointIndex];
 
@@ -143,8 +170,8 @@ export default function StudySession({ set, mode, cards: startingCards, options 
   function submitLearnAnswer() {
     if (!typedAnswer.trim() || !current) return;
     const answer = normalize(typedAnswer);
-    const definition = normalize(current.definition);
-    const correct = answer === definition || (definition.includes(answer) && answer.length > 2);
+    const expected = normalize(learnExpectedAnswer);
+    const correct = answer === expected || (expected.includes(answer) && answer.length > 2);
     setFeedback(correct ? 'correct' : 'incorrect');
     recordAnswer(current, correct);
   }
@@ -203,14 +230,14 @@ export default function StudySession({ set, mode, cards: startingCards, options 
     if (!testQuestion || !selected.trim()) return;
     const correct = questionType === 'choice'
       ? selected === testQuestion.card.id
-      : normalize(selected) === normalize(testQuestion.card.definition);
+      : normalize(selected) === normalize(getAnswerText(testQuestion.card, testQuestion.answerSide));
     const previousAnswer = answers[testIndex];
     const alreadyAnswered = Boolean(previousAnswer);
     const correctDelta = alreadyAnswered ? Number(correct) - Number(previousAnswer.correct) : Number(correct);
     recordAnswer(testQuestion.card, correct, !alreadyAnswered, correctDelta);
     setAnswers((items) => {
       const next = [...items];
-      next[testIndex] = { card: testQuestion.card, answer: selected, correct };
+      next[testIndex] = { card: testQuestion.card, answer: selected, answerSide: testQuestion.answerSide, correct };
       return next;
     });
     setSelected('');
@@ -222,9 +249,10 @@ export default function StudySession({ set, mode, cards: startingCards, options 
   }
 
   function resetTest(nextType = questionType, nextCount = questionCount) {
+    const previousCardIds = questions.map((question) => question.card.id);
     setQuestionType(nextType);
     setQuestionCount(nextCount);
-    setQuestions(buildQuestions(cards, nextCount, nextType));
+    setQuestions(buildQuestions(cards, nextCount, nextType, options.answerSide, previousCardIds));
     setAnswers([]);
     setTestIndex(0);
     setSelected('');
@@ -245,13 +273,13 @@ export default function StudySession({ set, mode, cards: startingCards, options 
       next.add(item.cardId);
       setMatched(next);
       setFirstMatch(null);
-      if (next.size === matching.terms.length) {
+      if (next.size === matching.left.length) {
         const nextKnown = new Set(known);
         const nextReview = new Set(review);
-        matching.terms.forEach((entry) => { nextKnown.add(entry.cardId); nextReview.delete(entry.cardId); });
+        matching.left.forEach((entry) => { nextKnown.add(entry.cardId); nextReview.delete(entry.cardId); });
         setKnown(nextKnown);
         setReview(nextReview);
-        persistProgress(nextKnown, nextReview, { attempts: matching.terms.length, correct: matching.terms.length });
+        persistProgress(nextKnown, nextReview, { attempts: matching.left.length, correct: matching.left.length });
       }
     } else {
       setMistakes((value) => value + 1);
@@ -299,9 +327,9 @@ export default function StudySession({ set, mode, cards: startingCards, options 
 
   useEffect(() => {
     if (mode === 'memorize' && options.level === 'advanced' && current) {
-      setLearnQuestionType(getMemorizationQuestionType(cards, index));
+      setLearnQuestionType(getMemorizationQuestionType(cards, index, learnAnswerSide));
     }
-  }, [index, mode, options.level, current?.id, cards]);
+  }, [index, mode, options.level, current?.id, cards, learnAnswerSide]);
 
   useEffect(() => {
     if (mode !== 'match' || matchingFinished) return undefined;
@@ -343,34 +371,34 @@ export default function StudySession({ set, mode, cards: startingCards, options 
       {isLearnMode && <>
         <div className="session-heading"><span className="eyebrow">{mode === 'memorize' ? 'MEMORIZATION' : mode === 'cram' ? 'CRAM SESSION' : 'LEARN'} · {Math.min(index + 1, cards.length)} OF {cards.length}</span><h1>{mode === 'cram' ? 'Get ready for test day' : 'Build your recall'}<span className="accent-dot">.</span></h1><p>{mode === 'memorize' ? (options.level === 'advanced' ? 'Alternate multiple choice and written recall, with flashcard checkpoints.' : 'Practice with multiple choice, then review cards at each checkpoint.') : mode === 'cram' ? 'Move quickly through questions and reinforce the cards at each checkpoint.' : 'Practice actively, then revisit cards that need more work.'}</p></div>
         <div className="progress-track"><span style={{ width: `${(finished ? 1 : (index + (feedback || learnStep === 'checkpoint' ? 1 : 0)) / cards.length) * 100}%` }} /></div>
-        {learnStep === 'checkpoint' && !finished && <div className="checkpoint-panel session-enter"><div className="checkpoint-heading"><span className="eyebrow">FLASHCARD CHECKPOINT · {checkpointIndex + 1} OF {checkpointCards.length}</span><h2>Review what you just practiced</h2><p>Flip each card, then mark whether it feels familiar.</p></div><div className="checkpoint-card-stage"><button className={`checkpoint-flashcard ${checkpointFlipped ? 'is-flipped' : ''}`} onClick={() => setCheckpointFlipped((value) => !value)} aria-label="Flip checkpoint flashcard"><span className="checkpoint-flashcard-inner"><span className="checkpoint-flashcard-face"><small>TERM / QUESTION</small><strong>{checkpointCard?.term}</strong><em>Tap to reveal</em></span><span className="checkpoint-flashcard-face checkpoint-back"><small>DEFINITION / ANSWER</small><strong>{checkpointCard?.definition}</strong><em>Tap to return</em></span></span></button></div><div className="checkpoint-controls"><button className="button button-warning" onClick={() => rateCheckpointCard(false)}><RotateCcw size={15} /> Needs practice</button><button className="button button-success" onClick={() => rateCheckpointCard(true)}><Check size={15} /> I know this</button></div></div>}
+        {learnStep === 'checkpoint' && !finished && <div className="checkpoint-panel session-enter"><div className="checkpoint-heading"><span className="eyebrow">FLASHCARD CHECKPOINT · {checkpointIndex + 1} OF {checkpointCards.length}</span><h2>Review what you just practiced</h2><p>Flip each card, then mark whether it feels familiar.</p></div><div className="checkpoint-card-stage"><button className={`checkpoint-flashcard ${checkpointFlipped ? 'is-flipped' : ''}`} onClick={() => setCheckpointFlipped((value) => !value)} aria-label="Flip checkpoint flashcard"><span className="checkpoint-flashcard-inner"><span className="checkpoint-flashcard-face"><small>{learnAnswerSides.get(checkpointCard?.id) === 'term' ? 'DEFINITION / QUESTION' : 'TERM / QUESTION'}</small><strong>{getQuestionText(checkpointCard, learnAnswerSides.get(checkpointCard?.id) || 'definition')}</strong><em>Tap to reveal</em></span><span className="checkpoint-flashcard-face checkpoint-back"><small>{learnAnswerSides.get(checkpointCard?.id) === 'term' ? 'TERM / ANSWER' : 'DEFINITION / ANSWER'}</small><strong>{getAnswerText(checkpointCard, learnAnswerSides.get(checkpointCard?.id) || 'definition')}</strong><em>Tap to return</em></span></span></button></div><div className="checkpoint-controls"><button className="button button-warning" onClick={() => rateCheckpointCard(false)}><RotateCcw size={15} /> Needs practice</button><button className="button button-success" onClick={() => rateCheckpointCard(true)}><Check size={15} /> I know this</button></div></div>}
         {learnStep === 'question' && !finished && <div className="learn-card session-enter">
           <div className="learn-card-top"><span className="flashcard-side-label">QUESTION</span>{canWriteAnswers && <div className="test-mode-switch" aria-label="Choose answer style"><button type="button" className={learnQuestionType === 'choice' ? 'selected' : ''} disabled={cards.length < 2} onClick={() => { setLearnQuestionType('choice'); setFeedback(null); setLearnSelected(''); setTypedAnswer(''); }}>Multiple choice</button><button type="button" className={learnQuestionType === 'typed' ? 'selected' : ''} onClick={() => { setLearnQuestionType('typed'); setFeedback(null); setLearnSelected(''); setTypedAnswer(''); }}>Write answer</button></div>}</div>
-          <h2>{current?.term}</h2>
+          <h2>{learnPrompt}</h2>
           {!feedback ? <>
-            {learnQuestionType === 'choice' ? (canUseLearnChoices ? <div className="choice-list learn-choice-list">{learnChoices.map((choice, choiceIndex) => <button type="button" key={choice.id} className="choice-option" onClick={() => submitLearnChoice(choice.id)}><span>{String.fromCharCode(65 + choiceIndex)}</span>{choice.definition}</button>)}</div> : <p className="inline-warning">This set does not have enough different answers for multiple choice on this card. Switch to Type answer to keep practicing.</p>) : <form onSubmit={(event) => { event.preventDefault(); submitLearnAnswer(); }}><label className="answer-label">Your answer<textarea value={typedAnswer} onChange={(event) => setTypedAnswer(event.target.value)} placeholder="Type the answer in your own words…" rows={3} required /></label><button className="button button-primary" disabled={!typedAnswer.trim()}>Check answer <Check size={16} /></button></form>}
+            {learnQuestionType === 'choice' ? (canUseLearnChoices ? <div className="choice-list learn-choice-list">{learnChoices.map((choice, choiceIndex) => <button type="button" key={choice.id} className="choice-option" onClick={() => submitLearnChoice(choice.id)}><span>{String.fromCharCode(65 + choiceIndex)}</span>{getAnswerText(choice, learnAnswerSide)}</button>)}</div> : <p className="inline-warning">This set does not have enough different answers for multiple choice on this card. Switch to Type answer to keep practicing.</p>) : <form onSubmit={(event) => { event.preventDefault(); submitLearnAnswer(); }}><label className="answer-label">Your answer<textarea value={typedAnswer} onChange={(event) => setTypedAnswer(event.target.value)} placeholder={`Type the ${learnAnswerSide} in your own words…`} rows={3} required /></label><button className="button button-primary" disabled={!typedAnswer.trim()}>Check answer <Check size={16} /></button></form>}
             <button type="button" className="text-button" onClick={revealLearnAnswer}>Show answer instead</button>
-          </> : <div className={`answer-feedback ${feedback}`}><div className="answer-feedback-title">{feedback === 'correct' ? <><CheckCircle2 size={19} /> Correct. Nice work!</> : feedback === 'skip' ? <>Answer revealed</> : <><XCircle size={19} /> Not quite. Keep practicing.</>}</div>{feedback !== 'skip' && learnQuestionType === 'choice' && <p className="learn-answer-note">{learnSelected === current?.id ? 'You selected the correct answer.' : 'The correct answer is highlighted below.'}</p>}<p>{current?.definition}</p>{current?.notes && <small>{current.notes}</small>}<button className="button button-primary" onClick={nextLearnCard}>{index === cards.length - 1 ? 'Finish session' : 'Next card'} <ArrowRight size={16} /></button></div>}
+          </> : <div className={`answer-feedback ${feedback}`}><div className="answer-feedback-title">{feedback === 'correct' ? <><CheckCircle2 size={19} /> Correct. Nice work!</> : feedback === 'skip' ? <>Answer revealed</> : <><XCircle size={19} /> Not quite. Keep practicing.</>}</div>{feedback !== 'skip' && learnQuestionType === 'choice' && <p className="learn-answer-note">{learnSelected === current?.id ? 'You selected the correct answer.' : 'The correct answer is highlighted below.'}</p>}<p><strong>Correct answer:</strong> {learnExpectedAnswer}</p><small>Card: {current?.term} · {current?.definition}</small>{current?.notes && <small>{current.notes}</small>}<button className="button button-primary" onClick={nextLearnCard}>{index === cards.length - 1 ? 'Finish session' : 'Next card'} <ArrowRight size={16} /></button></div>}
         </div>}
-        {learnStep === 'question' && feedback && !finished && learnQuestionType === 'choice' && canUseLearnChoices && <div className="choice-list learn-choice-review">{learnChoices.map((choice, choiceIndex) => <div key={choice.id} className={`choice-option choice-review-option ${choice.id === current?.id ? 'correct-choice' : choice.id === learnSelected ? 'incorrect-choice' : ''}`}><span>{String.fromCharCode(65 + choiceIndex)}</span>{choice.definition}{choice.id === current?.id && <CheckCircle2 size={16} />}{choice.id === learnSelected && choice.id !== current?.id && <XCircle size={16} />}</div>)}</div>}
+        {learnStep === 'question' && feedback && !finished && learnQuestionType === 'choice' && canUseLearnChoices && <div className="choice-list learn-choice-review">{learnChoices.map((choice, choiceIndex) => <div key={choice.id} className={`choice-option choice-review-option ${choice.id === current?.id ? 'correct-choice' : choice.id === learnSelected ? 'incorrect-choice' : ''}`}><span>{String.fromCharCode(65 + choiceIndex)}</span>{getAnswerText(choice, learnAnswerSide)}{choice.id === current?.id && <CheckCircle2 size={16} />}{choice.id === learnSelected && choice.id !== current?.id && <XCircle size={16} />}</div>)}</div>}
         {finished && <div className="results-panel session-enter"><div className="results-icon"><CheckCircle2 size={27} /></div><h2>Session complete</h2><p>You worked through {cards.length} cards. Keep revisiting the ones that need more practice.</p><div className="result-stats"><div><strong>{known.size}</strong><span>known</span></div><div><strong>{review.size}</strong><span>to review</span></div></div><button className="button button-primary" onClick={onClose}>Back to your set</button><button className="button button-outline" onClick={restartFlashcards}>Practice again</button></div>}
       </>}
 
-      {mode === 'test' && (questions.length === 0 ? <div className="results-panel"><h2>No questions available</h2><button className="button button-outline" onClick={onClose}>Back to set</button></div> : testFinished ? <div className="results-panel session-enter"><div className="results-icon"><CheckCircle2 size={27} /></div><span className="eyebrow">TEST COMPLETE</span><h2>{answers.filter((answer) => answer?.correct).length} / {questions.length} correct</h2><p>Review the questions below, then retry whenever you're ready.</p><div className="test-review-list">{answers.filter(Boolean).map((answer, answerIndex) => <div className={`test-review-item ${answer.correct ? 'correct' : 'incorrect'}`} key={`${answer.card.id}-${answerIndex}`}><span>{answer.correct ? <CheckCircle2 size={15} /> : <XCircle size={15} />} {answer.card.term}</span>{!answer.correct && <small>Correct answer: {answer.card.definition}</small>}</div>)}</div><button className="button button-primary" onClick={() => resetTest(questionType, questionCount)}><RotateCcw size={16} /> Retry test</button><button className="button button-outline" onClick={onClose}>Back to set</button></div> : <>
+      {mode === 'test' && (questions.length === 0 ? <div className="results-panel"><h2>No questions available</h2><button className="button button-outline" onClick={onClose}>Back to set</button></div> : testFinished ? <div className="results-panel session-enter"><div className="results-icon"><CheckCircle2 size={27} /></div><span className="eyebrow">TEST COMPLETE</span><h2>{answers.filter((answer) => answer?.correct).length} / {questions.length} correct</h2><p>Review the questions below, then retry whenever you're ready.</p><div className="test-review-list">{answers.filter(Boolean).map((answer, answerIndex) => <div className={`test-review-item ${answer.correct ? 'correct' : 'incorrect'}`} key={`${answer.card.id}-${answerIndex}`}><span>{answer.correct ? <CheckCircle2 size={15} /> : <XCircle size={15} />} {getQuestionText(answer.card, answer.answerSide)}</span>{!answer.correct && <small>Correct answer: {getAnswerText(answer.card, answer.answerSide)}</small>}</div>)}</div><button className="button button-primary" onClick={() => resetTest(questionType, questionCount)}><RotateCcw size={16} /> Retry test</button><button className="button button-outline" onClick={onClose}>Back to set</button></div> : <>
         <div className="session-heading"><span className="eyebrow">QUESTION {testIndex + 1} OF {questions.length}</span><h1>Practice test<span className="accent-dot">.</span></h1><p>{questionType === 'choice' ? 'Select the best answer.' : 'Write the answer in your own words.'}</p></div>
         <div className="progress-track"><span style={{ width: `${(testIndex / questions.length) * 100}%` }} /></div>
-        <div className="test-question session-enter"><div className="test-question-top"><span>{questionType === 'choice' ? 'MULTIPLE CHOICE' : 'WRITTEN RESPONSE'}</span><span className="test-answer-count">{answers.filter(Boolean).length} of {questions.length} answered</span></div><h2>{testQuestion?.card.term}</h2>
-          {questionType === 'choice' ? (testQuestion?.choices.length > 1 ? <div className="choice-list">{testQuestion.choices.map((choice, choiceIndex) => <button type="button" key={choice.id} className={`choice-option ${selected === choice.id ? 'selected' : ''}`} onClick={() => answerTest(choice.id)}><span>{String.fromCharCode(65 + choiceIndex)}</span>{choice.definition}</button>)}</div> : <p className="inline-warning">This question does not have enough different answers for multiple choice.</p>) : <textarea className="test-typed-answer" rows={4} value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="Type the definition or answer…" />}
+        <div className="test-question session-enter"><div className="test-question-top"><span>{questionType === 'choice' ? 'MULTIPLE CHOICE' : 'WRITTEN RESPONSE'}</span><span className="test-answer-count">{answers.filter(Boolean).length} of {questions.length} answered</span></div><h2>{getQuestionText(testQuestion?.card, testQuestion?.answerSide)}</h2>
+          {questionType === 'choice' ? (testQuestion?.choices.length > 1 ? <div className="choice-list">{testQuestion.choices.map((choice, choiceIndex) => <button type="button" key={choice.id} className={`choice-option ${selected === choice.id ? 'selected' : ''}`} onClick={() => answerTest(choice.id)}><span>{String.fromCharCode(65 + choiceIndex)}</span>{getAnswerText(choice, testQuestion.answerSide)}</button>)}</div> : <p className="inline-warning">This question does not have enough different answers for multiple choice.</p>) : <textarea className="test-typed-answer" rows={4} value={selected} onChange={(event) => setSelected(event.target.value)} placeholder={`Type the ${testQuestion?.answerSide}…`} />}
           <div className="test-next-row"><button className="button button-outline" onClick={previousTestQuestion} disabled={testIndex === 0}><ArrowLeft size={15} /> Previous question</button><button className="button button-primary" disabled={!selected.trim() || (questionType === 'choice' && (testQuestion?.choices.length || 0) < 2)} onClick={submitTest}>{answers[testIndex] ? 'Update answer' : 'Submit answer'} <ArrowRight size={16} /></button></div>
         </div>
       </>)}
 
       {mode === 'match' && <>
-        <div className="session-heading"><span className="eyebrow">MATCHING GAME</span><h1>Find the pairs<span className="accent-dot">.</span></h1><p>Choose a term and its matching definition. Match all pairs to finish.</p></div>
-        {matchingFinished ? <div className="results-panel session-enter"><div className="results-icon"><CheckCircle2 size={27} /></div><h2>All matched!</h2><p>You matched {matched.size} pairs with {mistakes} mismatches.</p><div className="result-stats"><div><strong>{mistakes}</strong><span>mistakes</span></div><div><strong>{Math.round((clockNow - matchStartedAt) / 1000)}s</strong><span>time</span></div></div><button className="button button-primary" onClick={() => { setMatched(new Set()); setMistakes(0); setFirstMatch(null); setMatchStartedAt(Date.now()); setClockNow(Date.now()); setMatching(createMatching(cards)); }}>Play again</button><button className="button button-outline" onClick={onClose}>Back to set</button></div> : <>
-          <div className="match-status"><span><CheckCircle2 size={15} /> {matched.size} / {matching.terms.length} pairs</span><span><XCircle size={15} /> {mistakes} mistakes</span><span><Clock3 size={15} /> {Math.round((clockNow - matchStartedAt) / 1000)} sec</span></div>
-          <div className="matching-grid"><div className="matching-column">{matching.terms.map((item) => <button key={item.cardId} disabled={matched.has(item.cardId)} className={`match-tile ${matched.has(item.cardId) ? 'matched' : ''} ${firstMatch?.side === 'term' && firstMatch.item.cardId === item.cardId ? 'selected' : ''}`} onClick={() => chooseMatch('term', item)}>{item.text}</button>)}</div><div className="matching-column">{matching.definitions.map((item) => <button key={item.cardId} disabled={matched.has(item.cardId)} className={`match-tile ${matched.has(item.cardId) ? 'matched' : ''} ${firstMatch?.side === 'definition' && firstMatch.item.cardId === item.cardId ? 'selected' : ''}`} onClick={() => chooseMatch('definition', item)}>{item.text}</button>)}</div></div>
-          <div className="match-actions"><button className="button button-outline" onClick={() => { setMatching(createMatching(cards)); setMatched(new Set()); setFirstMatch(null); setMistakes(0); setMatchStartedAt(Date.now()); setClockNow(Date.now()); }}><Shuffle size={15} /> Restart game</button></div>
+        <div className="session-heading"><span className="eyebrow">MATCHING GAME</span><h1>Find the pairs<span className="accent-dot">.</span></h1><p>Match each prompt with its correct answer. Match all pairs to finish.</p></div>
+        {matchingFinished ? <div className="results-panel session-enter"><div className="results-icon"><CheckCircle2 size={27} /></div><h2>All matched!</h2><p>You matched {matched.size} pairs with {mistakes} mismatches.</p><div className="result-stats"><div><strong>{mistakes}</strong><span>mistakes</span></div><div><strong>{Math.round((clockNow - matchStartedAt) / 1000)}s</strong><span>time</span></div></div><button className="button button-primary" onClick={() => { setMatched(new Set()); setMistakes(0); setFirstMatch(null); setMatchStartedAt(Date.now()); setClockNow(Date.now()); setMatching(createMatching(cards, options.answerSide, matching.selectedCardIds)); }}>Play again</button><button className="button button-outline" onClick={onClose}>Back to set</button></div> : <>
+          <div className="match-status"><span><CheckCircle2 size={15} /> {matched.size} / {matching.left.length} pairs</span><span><XCircle size={15} /> {mistakes} mistakes</span><span><Clock3 size={15} /> {Math.round((clockNow - matchStartedAt) / 1000)} sec</span></div>
+          <div className="matching-grid"><div className="matching-column"><span className="matching-column-label">Prompts</span>{matching.left.map((item) => <button key={item.cardId} disabled={matched.has(item.cardId)} className={`match-tile ${matched.has(item.cardId) ? 'matched' : ''} ${firstMatch?.side === 'left' && firstMatch.item.cardId === item.cardId ? 'selected' : ''}`} onClick={() => chooseMatch('left', item)}>{item.text}</button>)}</div><div className="matching-column"><span className="matching-column-label">Answers</span>{matching.right.map((item) => <button key={item.cardId} disabled={matched.has(item.cardId)} className={`match-tile ${matched.has(item.cardId) ? 'matched' : ''} ${firstMatch?.side === 'right' && firstMatch.item.cardId === item.cardId ? 'selected' : ''}`} onClick={() => chooseMatch('right', item)}>{item.text}</button>)}</div></div>
+          <div className="match-actions"><button className="button button-outline" onClick={() => { setMatching(createMatching(cards, options.answerSide, matching.selectedCardIds)); setMatched(new Set()); setFirstMatch(null); setMistakes(0); setMatchStartedAt(Date.now()); setClockNow(Date.now()); }}><Shuffle size={15} /> Restart game</button></div>
         </>}
       </>}
     </div>

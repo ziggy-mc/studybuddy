@@ -71,7 +71,7 @@ export default function FlashcardPage() {
     <div className="page-wrap flashcard-page-wrap">
       <div className="flashcard-page-heading">
         <div><span className="eyebrow">FLASHCARD STUDY <span className="set-type set-type-cloud"><Cloud size={12} /> {setKind === 'cloud' ? 'Cloud set' : 'Local set'}</span></span><h1>{studySet.title}</h1><p>{readyCards.length} cards · {setKind === 'cloud' ? 'Progress syncs to your Discord account.' : 'Progress saves automatically in this browser.'}</p></div>
-        <button className="button button-outline" onClick={() => router.push(`/sets/${studySet.id}`)}><ArrowLeft size={15} /> Set overview</button>
+        
       </div>
       {error && <div className="notice error-notice">{error}</div>}
       <StudySession

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Clock3, RotateCcw, Shuffle, XCircle, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Clock3, RotateCcw, Shuffle, XCircle } from 'lucide-react';
 import { buildChoiceOptions, getCheckpointCards, getMemorizationQuestionType, normalizeAnswer, shuffleItems } from '@/lib/study';
 
 function shuffle(items) {
@@ -263,7 +263,7 @@ export default function StudySession({ set, mode, cards: startingCards, options 
     function onKey(event) {
       const target = event.target;
       if (mode !== 'flashcards' || finished || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
-      if (target instanceof HTMLButtonElement && !target.classList.contains('flashcard')) return;
+      if (target instanceof HTMLButtonElement && !target.classList.contains('checkpoint-flashcard')) return;
       if (event.code === 'Space') {
         event.preventDefault();
         setFlipped((value) => !value);
@@ -318,11 +318,20 @@ export default function StudySession({ set, mode, cards: startingCards, options 
       {mode === 'flashcards' && (finished ? <div className="results-panel session-enter"><div className="results-icon"><CheckCircle2 size={27} /></div><h2>Flashcard session complete</h2><p>You reviewed {cards.length} cards. Keep practicing the cards that need another look.</p><div className="result-stats"><div><strong>{known.size}</strong><span>known</span></div><div><strong>{review.size}</strong><span>to review</span></div></div><button className="button button-primary" onClick={onClose}>Back to your set</button><button className="button button-outline" onClick={restartFlashcards}><RotateCcw size={16} /> Study again</button></div> : <>
         <div className="session-heading"><span className="eyebrow">CARD {index + 1} OF {cards.length}</span><h1>Recall what you know<span className="accent-dot">.</span></h1><p>Flip the card, then mark whether you know it or need more practice.</p></div>
         <div className="progress-track"><span style={{ width: `${((index + 1) / cards.length) * 100}%` }} /></div>
-        <div className="flashcard-stage">
-          <button className={`flashcard ${flipped ? 'is-flipped' : ''}`} onClick={() => setFlipped((value) => !value)} aria-label="Flip flashcard" aria-pressed={flipped}>
-            <span className="flashcard-inner">
-              <span className="flashcard-face flashcard-face-front"><span className="flashcard-side-label">TERM / QUESTION</span><strong>{current?.term}</strong><span className="flip-hint"><Sparkles size={13} /> Click or press Space to reveal</span></span>
-              <span className="flashcard-face flashcard-face-back"><span className="flashcard-side-label">DEFINITION / ANSWER</span><strong>{current?.definition}</strong>{current?.notes && <small>{current.notes}</small>}<span className="flip-hint"><Sparkles size={13} /> Click to return to the question</span></span>
+        <div className="checkpoint-card-stage flashcard-page-card-stage">
+          <button className={`checkpoint-flashcard flashcard-page-card ${flipped ? 'is-flipped' : ''}`} onClick={() => setFlipped((value) => !value)} aria-label="Flip flashcard" aria-pressed={flipped}>
+            <span className="checkpoint-flashcard-inner flashcard-page-card-inner">
+              <span className="checkpoint-flashcard-face">
+                <small>TERM / QUESTION</small>
+                <strong>{current?.term}</strong>
+                <em>Tap or press Space to reveal</em>
+              </span>
+              <span className="checkpoint-flashcard-face checkpoint-back">
+                <small>DEFINITION / ANSWER</small>
+                <strong>{current?.definition}</strong>
+                {current?.notes && <p className="flashcard-page-card-note">{current.notes}</p>}
+                <em>Tap or press Space to return</em>
+              </span>
             </span>
           </button>
         </div>

@@ -142,7 +142,7 @@ export default function AppShell({ children, productLinkUrl = 'https://evtrg.com
       <footer className="site-footer">
         <span>StudyDeck is free to use. Guest study sets stay in this browser.</span>
         <div><Link href="/legal/terms">Terms</Link><Link href="/legal/privacy">Privacy</Link><Link href="/legal/cookies">Cookies</Link></div>
-        <a className="product-credit" href={productLinkUrl || 'https://evtrg.com'} target="_blank" rel="noreferrer">a Eventrigger Byproduct</a>
+        <a className="product-credit" href={productLinkUrl || 'https://evtrg.com'} target="_blank" rel="noreferrer">A Eventrigger Byproduct</a>
       </footer>
     </div>
   );

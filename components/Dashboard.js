@@ -152,7 +152,7 @@ export default function Dashboard() {
         </div>
         <div className="hero-stat-card">
           <div className="hero-stat-icon"><Layers3 size={18} /></div>
-          <strong>{localSets.length}</strong><span>study sets on this device</span>
+          <strong>{localSets.length}</strong><span>study set(s) on this device</span>
           
         </div>
       </section>
